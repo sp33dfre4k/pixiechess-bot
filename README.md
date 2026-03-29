@@ -5,7 +5,7 @@ Telegram and Discord bot that watches the Pixie Chess VRGDA deployer contract on
 ## Requirements
 
 - [Bun](https://bun.sh) 
-- [Docker](https://docs.docker.com/get-docker/)
+- [Docker](https://docs.docker.com/get-docker/) (for deployment)
 - A Telegram bot token (from [@BotFather](https://t.me/BotFather))
 - A Discord bot token
 - A Base RPC endpoint (e.g. Alchemy, Infura, or the public `https://mainnet.base.org`)
