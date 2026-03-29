@@ -1,4 +1,4 @@
-# pixie-chess
+# Pixie Chess Bot ♟️✨
 
 Telegram bot that watches the Pixie Chess VRGDA deployer contract on Base and sends notifications for auction events.
 
