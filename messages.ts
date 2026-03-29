@@ -1,6 +1,6 @@
 import { formatEther, type Hash } from "viem";
 
-const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)];
+const pick = <T>(arr: T[]): T => arr[Math.floor(Math.random() * arr.length)]!;
 
 const basescanTx = (hash: Hash) => `https://basescan.org/tx/${hash}`;
 const basescanAddr = (addr: string) => `https://basescan.org/address/${addr}`;
