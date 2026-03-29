@@ -1,0 +1,14 @@
+{
+  "name": "pixie-chess",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "grammy": "^1.41.1",
+    "viem": "^2.47.6"
+  }
+}
