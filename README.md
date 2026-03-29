@@ -1,10 +1,6 @@
 # Pixie Chess Bot ♟️✨
 
-Telegram bot that watches the Pixie Chess VRGDA deployer contract on Base and sends notifications for auction events.
-
-- Watches the deployer for new `VRDGADeployed` events (new auction started)
-- Automatically watches each deployed VRGDA contract for `Mint` and `Closed` events
-- On startup, bootstraps by fetching all past deployer events to catch existing auctions
+Telegram and Discord bot that watches the Pixie Chess VRGDA deployer contract on Base and sends notifications for auction events.
 
 ## Requirements
 
