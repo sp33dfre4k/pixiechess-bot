@@ -16,6 +16,7 @@ const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID!;
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 const DEPLOYER_ADDRESS = process.env.DEPLOYER_ADDRESS as Address;
+const DEPLOYER_BLOCK = BigInt(process.env.DEPLOYER_BLOCK || "0");
 
 if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID || !DEPLOYER_ADDRESS) {
   log("error", "missing_env", { hint: "See .env.example" });
@@ -34,10 +35,16 @@ async function sendTg(text: string) {
   }
 }
 
-// --- Viem client ---
+// --- Viem clients ---
 const client = createPublicClient({
   chain: base,
   transport: http(RPC_URL),
+});
+
+// Public RPC for historical queries (no block range limits)
+const publicClient = createPublicClient({
+  chain: base,
+  transport: http("https://mainnet.base.org"),
 });
 
 // --- State ---
@@ -84,16 +91,50 @@ function watchVrgda(address: Address) {
   unwatchers.push(unwatchMint, unwatchClosed);
 }
 
+// --- Paginated log fetching with retry (public RPC has 10K block limit + rate limits) ---
+const BLOCK_CHUNK = 10_000n;
+const MAX_RETRIES = 5;
+
+async function fetchWithRetry<T>(fn: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      if (attempt === MAX_RETRIES - 1) throw err;
+      const delay = 1000 * 2 ** attempt;
+      log("warn", "rpc_retry", { attempt: attempt + 1, delay, error: err.message });
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw new Error("unreachable");
+}
+
+async function getDeployerEvents(fromBlock: bigint) {
+  const latestBlock = await fetchWithRetry(() => publicClient.getBlockNumber());
+  const allLogs = [];
+
+  for (let start = fromBlock; start <= latestBlock; start += BLOCK_CHUNK) {
+    const end = start + BLOCK_CHUNK - 1n > latestBlock ? latestBlock : start + BLOCK_CHUNK - 1n;
+    const logs = await fetchWithRetry(() =>
+      publicClient.getContractEvents({
+        address: DEPLOYER_ADDRESS,
+        abi: vrdgaDeployerAbi,
+        eventName: "VRDGADeployed",
+        fromBlock: start,
+        toBlock: end,
+      })
+    );
+    allLogs.push(...logs);
+  }
+
+  return allLogs;
+}
+
 // --- Bootstrap: fetch past VRDGADeployed logs and watch those contracts ---
 async function bootstrapExistingVrgdas() {
   log("info", "bootstrap_start");
 
-  const logs = await client.getContractEvents({
-    address: DEPLOYER_ADDRESS,
-    abi: vrdgaDeployerAbi,
-    eventName: "VRDGADeployed",
-    fromBlock: 0n,
-  });
+  const logs = await getDeployerEvents(DEPLOYER_BLOCK);
 
   for (const l of logs) {
     const { contractAddress } = l.args as { contractAddress: Address };
