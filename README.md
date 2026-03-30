@@ -33,5 +33,5 @@ bun test
 ## Deploy
 
 ```bash
-docker compose up
+git push origin trunk:production
 ```
