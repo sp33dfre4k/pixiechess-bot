@@ -1,6 +1,7 @@
 import { createPublicClient, http, type Address, type Hash } from "viem";
 import { base } from "viem/chains";
 import { Bot } from "grammy";
+import { Client, GatewayIntentBits, TextChannel } from "discord.js";
 import { pixieVrdga } from "./pixieVrgda";
 import { vrdgaDeployerAbi } from "./vrdgaDeployer";
 import { mintMessage, deployedMessage, closedMessage } from "./messages";
@@ -15,24 +16,57 @@ function log(level: "info" | "warn" | "error", event: string, data?: Record<stri
 const TELEGRAM_BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID!;
 const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN!;
+const DISCORD_CHANNEL_ID = "1483585685888962625";
 const DEPLOYER_ADDRESS = process.env.DEPLOYER_ADDRESS as Address;
 const DEPLOYER_BLOCK = BigInt(process.env.DEPLOYER_BLOCK || "0");
 
-if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID || !DEPLOYER_ADDRESS) {
+if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID || !DEPLOYER_ADDRESS || !DISCORD_BOT_TOKEN) {
   log("error", "missing_env", { hint: "See .env.example" });
   process.exit(1);
 }
 
 // --- Telegram ---
-const bot = new Bot(TELEGRAM_BOT_TOKEN);
+const tgBot = new Bot(TELEGRAM_BOT_TOKEN);
 
 async function sendTg(text: string) {
   try {
-    await bot.api.sendMessage(TELEGRAM_CHAT_ID, text, { parse_mode: "HTML" });
+    await tgBot.api.sendMessage(TELEGRAM_CHAT_ID, text, { parse_mode: "HTML" });
     log("info", "telegram_sent");
   } catch (err) {
     log("error", "telegram_failed", { error: String(err) });
   }
+}
+
+// --- Discord ---
+const discord = new Client({ intents: [GatewayIntentBits.Guilds] });
+let discordChannel: TextChannel | null = null;
+
+discord.once("ready", async () => {
+  const channel = await discord.channels.fetch(DISCORD_CHANNEL_ID);
+  if (channel?.isTextBased()) {
+    discordChannel = channel as TextChannel;
+    log("info", "discord_ready", { channel: DISCORD_CHANNEL_ID });
+  } else {
+    log("error", "discord_channel_not_found", { channel: DISCORD_CHANNEL_ID });
+  }
+});
+
+discord.login(DISCORD_BOT_TOKEN);
+
+async function sendDiscord(text: string) {
+  if (!discordChannel) return;
+  try {
+    await discordChannel.send(text);
+    log("info", "discord_sent");
+  } catch (err) {
+    log("error", "discord_failed", { error: String(err) });
+  }
+}
+
+// --- Broadcast to all channels ---
+async function broadcast(tgText: string, discordText: string) {
+  await Promise.all([sendTg(tgText), sendDiscord(discordText)]);
 }
 
 // --- Viem client ---
@@ -61,7 +95,7 @@ function watchVrgda(address: Address) {
         const { pieceId, price } = log_.args as { pieceId: bigint; price: bigint };
         const txHash = log_.transactionHash as Hash;
         log("info", "mint", { pieceId: String(pieceId), price: String(price), txHash });
-        sendTg(mintMessage(pieceId, price, txHash));
+        broadcast(mintMessage(pieceId, price, txHash, "html"), mintMessage(pieceId, price, txHash, "markdown"));
       }
     },
     onError: (err) => log("error", "mint_watcher_error", { address, error: err.message }),
@@ -76,7 +110,7 @@ function watchVrgda(address: Address) {
         const { closedAt } = log_.args as { closedAt: bigint };
         const txHash = log_.transactionHash as Hash;
         log("info", "closed", { closedAt: String(closedAt), txHash });
-        sendTg(closedMessage(closedAt, txHash));
+        broadcast(closedMessage(closedAt, txHash, "html"), closedMessage(closedAt, txHash, "markdown"));
       }
     },
     onError: (err) => log("error", "closed_watcher_error", { address, error: err.message }),
@@ -126,7 +160,10 @@ function watchDeployer() {
           pieceId: String(pieceId),
           txHash,
         });
-        sendTg(deployedMessage(contractAddress, pieceId, startTime, endTime, txHash));
+        broadcast(
+          deployedMessage(contractAddress, pieceId, startTime, endTime, txHash, "html"),
+          deployedMessage(contractAddress, pieceId, startTime, endTime, txHash, "markdown"),
+        );
         watchVrgda(contractAddress);
       }
     },
