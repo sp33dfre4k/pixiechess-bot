@@ -1,6 +1,4 @@
-import { test, expect, describe, beforeAll, setDefaultTimeout } from "bun:test";
-
-setDefaultTimeout(60_000);
+import { test, expect, describe, beforeAll } from "bun:test";
 import { createPublicClient, http, type Address } from "viem";
 import { base } from "viem/chains";
 import { Bot } from "grammy";
@@ -13,46 +11,26 @@ const TX_HASH = "0xabc123def456789000000000000000000000000000000000000000000000d
 const ADDR = "0x5ff1658A7dc6F15398CD9d5A34dC0685082599a5";
 const DEPLOYER_ADDRESS = process.env.DEPLOYER_ADDRESS as Address;
 const DEPLOYER_BLOCK = BigInt(process.env.DEPLOYER_BLOCK || "0");
+const RPC_URL = process.env.RPC_URL || "https://mainnet.base.org";
 
 const client = createPublicClient({
   chain: base,
-  transport: http("https://mainnet.base.org"),
+  transport: http(RPC_URL),
 });
 
 // --- Shared bootstrap fetch (run once, reused across suites) ---
-const BLOCK_CHUNK = 10_000n;
 let deployerLogs: any[] = [];
 let bootstrapDone = false;
 
-async function fetchWithRetry<T>(fn: () => Promise<T>, retries = 5): Promise<T> {
-  for (let i = 0; i < retries; i++) {
-    try {
-      return await fn();
-    } catch {
-      if (i === retries - 1) throw new Error("Max retries reached");
-      await new Promise((r) => setTimeout(r, 1000 * 2 ** i));
-    }
-  }
-  throw new Error("unreachable");
-}
-
 async function ensureBootstrap() {
   if (bootstrapDone) return;
-  const latestBlock = await fetchWithRetry(() => client.getBlockNumber());
 
-  for (let start = DEPLOYER_BLOCK; start <= latestBlock; start += BLOCK_CHUNK) {
-    const end = start + BLOCK_CHUNK - 1n > latestBlock ? latestBlock : start + BLOCK_CHUNK - 1n;
-    const logs = await fetchWithRetry(() =>
-      client.getContractEvents({
-        address: DEPLOYER_ADDRESS,
-        abi: vrdgaDeployerAbi,
-        eventName: "VRDGADeployed",
-        fromBlock: start,
-        toBlock: end,
-      })
-    );
-    deployerLogs.push(...logs);
-  }
+  deployerLogs = await client.getContractEvents({
+    address: DEPLOYER_ADDRESS,
+    abi: vrdgaDeployerAbi,
+    eventName: "VRDGADeployed",
+    fromBlock: DEPLOYER_BLOCK,
+  });
 
   bootstrapDone = true;
 }
@@ -185,19 +163,17 @@ describe("vrgda contract", () => {
     expect(totalSold).toBeGreaterThanOrEqual(0n);
   });
 
-  test("can fetch past Mint events from a deployed VRGDA", async () => {
+  test("can fetch Mint events from a deployed VRGDA", async () => {
     if (!vrgdaAddress) {
       console.log("Skipping — no VRGDA to test");
       return;
     }
 
-    const latestBlock = await client.getBlockNumber();
     const logs = await client.getContractEvents({
       address: vrgdaAddress,
       abi: pixieVrdga,
       eventName: "Mint",
-      fromBlock: latestBlock - 10_000n,
-      toBlock: latestBlock,
+      fromBlock: DEPLOYER_BLOCK,
     });
 
     expect(logs).toBeInstanceOf(Array);
